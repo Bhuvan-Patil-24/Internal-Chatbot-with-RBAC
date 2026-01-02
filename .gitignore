@@ -1,4 +1,6 @@
 Fintech-data/
+Fintech-data-normalized/
 venv/
 .env
 *.bin
+*.sqlite3
