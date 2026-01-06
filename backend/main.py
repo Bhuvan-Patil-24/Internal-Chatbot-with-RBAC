@@ -1,5 +1,8 @@
+from auth import token_blacklist
 from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+
 from datetime import datetime
 import time
 from typing import Dict
@@ -18,7 +21,7 @@ from auth.auth_handler import AuthHandler
 from auth.database_manager import DatabaseManager
 from services.audit_logger import AuditLogger
 from rbac.rbac_middleware import get_current_user
-from app import bootstrap_application
+from create_rag import bootstrap_application
 
 # Initialize components
 app = FastAPI(
@@ -41,9 +44,39 @@ auth_handler = AuthHandler()
 db_manager = DatabaseManager()
 audit_logger = AuditLogger()
 
-# Global RAG pipeline instance (to be set during startup)
-rag_pipeline = None
+rag_pipeline = None  # Will be initialized on startup
 
+def build_user_rbac(current_user: Dict):
+    from rbac.RBACEngine import RBACEngine
+    return RBACEngine(
+        user_roles=[current_user["role"]],
+        rbac_config=rag_pipeline.rbac.rbac_config,
+        audit_logger=audit_logger
+    )
+
+from contextlib import contextmanager
+
+@contextmanager
+def use_user_rbac(user_rbac):
+    original_rbac = rag_pipeline.rbac
+    rag_pipeline.rbac = user_rbac
+    try:
+        yield
+    finally:
+        rag_pipeline.rbac = original_rbac
+
+def require_admin(current_user: Dict):
+    if current_user["role"].lower() != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required"
+        )
+def ensure_pipeline_ready():
+    if not rag_pipeline:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="RAG pipeline not initialized"
+        )
 
 # ==================== STARTUP & HEALTH ====================
 
@@ -53,7 +86,10 @@ async def startup_event():
     db_manager.initialize_database()
     db_manager.seed_users()
     audit_logger.log_info("API server started")
-    bootstrap_application(audit_logger)
+
+    global rag_pipeline
+    rag_pipeline = bootstrap_application(audit_logger)
+    audit_logger.log_info("Complete RAG pipeline initialized in FastAPI")
 
 @app.get("/", response_model=SystemStatus)
 async def root():
@@ -153,6 +189,25 @@ async def login(request: Request, credentials: LoginRequest):
             "user_id": user["id"]
         }
     )
+security = HTTPBearer()
+
+@app.post("/auth/logout")
+async def logout(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    current_user: Dict = Depends(get_current_user)
+):
+    token_blacklist.blacklist(credentials.credentials)
+
+    audit_logger.log_auth_attempt(
+        username=current_user["username"],
+        action="logout",
+        success=True,
+        reason="Token invalidated",
+        ip_address=request.client.host
+    )
+
+    return {"message": "Logout successful"}
 
 
 @app.post("/auth/refresh", response_model=TokenResponse)
@@ -235,11 +290,7 @@ async def get_current_user_info(
     # Get accessible departments if RAG pipeline is initialized
     accessible_departments = []
     if rag_pipeline:
-        from rbac.RBACEngine import RBACEngine
-        temp_rbac = RBACEngine(
-            user_roles=[current_user["role"]],
-            rbac_config=rag_pipeline.rbac.rbac_config
-        )
+        temp_rbac = build_user_rbac(current_user)
         accessible_departments = temp_rbac.get_accessible_departments()
     
     return UserInfo(
@@ -262,39 +313,23 @@ async def chat_query(
     Main chat endpoint - Execute complete RAG pipeline with LLM response
     Returns AI-generated answer with source citations
     """
-    if not rag_pipeline:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="RAG pipeline not initialized"
-        )
+    ensure_pipeline_ready()
     
     ip_address = request.client.host
     start_time = time.time()
     
     try:
         # Create user-specific RBAC engine
-        from rbac.RBACEngine import RBACEngine
-        
-        user_rbac = RBACEngine(
-            user_roles=[current_user["role"]],
-            rbac_config=rag_pipeline.rbac.rbac_config,
-            audit_logger=audit_logger
-        )
-        
-        # Temporarily replace pipeline RBAC
-        original_rbac = rag_pipeline.rbac
-        rag_pipeline.rbac = user_rbac
+        user_rbac = build_user_rbac(current_user)
         
         # Execute complete RAG pipeline (retrieval + LLM)
-        response = rag_pipeline.process_query(
-            query=chat_request.query,
-            top_k=chat_request.top_k,
-            max_tokens=chat_request.max_tokens,
-            username=current_user["username"]
-        )
-        
-        # Restore original RBAC
-        rag_pipeline.rbac = original_rbac
+        with use_user_rbac(user_rbac):
+            response = rag_pipeline.process_query(
+                query=chat_request.query,
+                top_k=chat_request.top_k,
+                max_tokens=chat_request.max_tokens,
+                username=current_user["username"]
+            )
         
         # Calculate processing time
         processing_time = (time.time() - start_time) * 1000
@@ -340,34 +375,20 @@ async def retrieval_only(
     Retrieval-only endpoint - Returns raw chunks without LLM generation
     Useful for testing or when you just need document retrieval
     """
-    if not rag_pipeline:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="RAG pipeline not initialized"
-        )
+    ensure_pipeline_ready()
     
     try:
         # Create user-specific RBAC engine
-        from rbac.RBACEngine import RBACEngine
         
-        user_rbac = RBACEngine(
-            user_roles=[current_user["role"]],
-            rbac_config=rag_pipeline.rbac.rbac_config
-        )
+        user_rbac = build_user_rbac(current_user)
         
-        # Temporarily replace pipeline RBAC
-        original_rbac = rag_pipeline.rbac
-        rag_pipeline.rbac = user_rbac
-        
-        # Execute retrieval only
-        results = rag_pipeline.get_retrieval_only(
-            query=retrieval_request.query,
-            top_k=retrieval_request.top_k,
-            username=current_user["username"]
-        )
-        
-        # Restore original RBAC
-        rag_pipeline.rbac = original_rbac
+        with use_user_rbac(user_rbac):
+            # Execute retrieval only
+            results = rag_pipeline.get_retrieval_only(
+                query=retrieval_request.query,
+                top_k=retrieval_request.top_k,
+                username=current_user["username"]
+            )
         
         # Format results
         retrieval_results = [
@@ -400,18 +421,10 @@ async def get_pipeline_stats(
     current_user: Dict = Depends(get_current_user)
 ):
     """Get RAG pipeline statistics for current user"""
-    if not rag_pipeline:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="RAG pipeline not initialized"
-        )
+    ensure_pipeline_ready()
     
-    # Create user-specific RBAC
-    from rbac.RBACEngine import RBACEngine
-    user_rbac = RBACEngine(
-        user_roles=[current_user["role"]],
-        rbac_config=rag_pipeline.rbac.rbac_config
-    )
+    # Create user-specific RBAC engine
+    user_rbac = build_user_rbac(current_user)
     
     stats = rag_pipeline.get_pipeline_stats()
     
@@ -432,11 +445,7 @@ async def list_users(
     current_user: Dict = Depends(get_current_user)
 ):
     """List all users (admin only)"""
-    if current_user["role"] != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required"
-        )
+    require_admin(current_user)
     
     users = db_manager.get_all_users()
     return {"users": users}
@@ -448,11 +457,7 @@ async def create_user(
     current_user: Dict = Depends(get_current_user)
 ):
     """Create new user (admin only)"""
-    if current_user["role"] != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required"
-        )
+    require_admin(current_user)
     
     success = db_manager.create_user(
         username=user_data.username,
@@ -481,11 +486,7 @@ async def update_user(
     current_user: Dict = Depends(get_current_user)
 ):
     """Update user (admin only)"""
-    if current_user["role"] != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required"
-        )
+    require_admin(current_user)
     
     user = db_manager.get_user_by_username(username)
     if not user:
@@ -515,11 +516,7 @@ async def get_auth_logs(
     current_user: Dict = Depends(get_current_user)
 ):
     """Get authentication logs (admin only)"""
-    if current_user["role"] != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required"
-        )
+    require_admin(current_user)
     
     logs = audit_logger.get_recent_auth_logs(limit=query.limit)
     return {"logs": logs}
@@ -531,11 +528,7 @@ async def get_access_logs(
     current_user: Dict = Depends(get_current_user)
 ):
     """Get access control logs (admin only)"""
-    if current_user["role"] != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required"
-        )
+    require_admin(current_user)
     
     logs = audit_logger.get_recent_access_logs(limit=query.limit)
     return {"logs": logs}
@@ -547,11 +540,7 @@ async def get_rag_logs(
     current_user: Dict = Depends(get_current_user)
 ):
     """Get RAG pipeline logs (admin only)"""
-    if current_user["role"] != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required"
-        )
+    require_admin(current_user)
     
     logs = audit_logger.get_recent_rag_logs(limit=query.limit)
     return {"logs": logs}
@@ -564,24 +553,10 @@ async def get_user_activity(
     current_user: Dict = Depends(get_current_user)
 ):
     """Get activity logs for specific user"""
-    if current_user["role"] != "admin" and current_user["username"] != username:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Can only view your own activity logs"
-        )
+    require_admin(current_user)
     
     activity = audit_logger.get_user_activity(username, limit)
     return activity
-
-
-# ==================== PIPELINE INITIALIZATION ====================
-
-def initialize_rag_pipeline(pipeline):
-    """Initialize the global RAG pipeline"""
-    global rag_pipeline
-    rag_pipeline = pipeline
-    audit_logger.log_info("Complete RAG pipeline initialized in FastAPI")
-
 
 if __name__ == "__main__":
     import uvicorn
