@@ -25,12 +25,13 @@ class Config:
     EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
     
     # LLM Settings (Using HuggingFace free API)
-    LLM_PROVIDER = "ollama" 
     OLLAMA_API_URL = os.getenv("OLLAMA_API_URL")
-    OLLAMA_MODEL = "mistral"
+    HF_API_TOKEN = os.getenv("HF_API_TOKEN")
+    LLM_PROVIDER = "hf_mistral" # Options: "ollama", "huggingface", "hf_mistral"
+    LLM_MODEL = "mistralai/Mistral-7B-Instruct-v0.2" # Options: "mistral", "google/flan-t5-base", "mistralai/Mistral-7B-Instruct-v0.2"
     
     # RAG Settings
-    TOP_K_RETRIEVAL = 5
+    TOP_K_RETRIEVAL = 4
     SIMILARITY_THRESHOLD = 0.3
     MAX_CONTEXT_LENGTH = 2000
     
@@ -39,35 +40,4 @@ class Config:
     ACCESS_LOG_FILE = r"D:/Infosys Springboard Virtual Internship 6.0/Internal-Chatbot-with-RBAC/logs/access_audit.log"
     RAG_LOG_FILE = r"D:/Infosys Springboard Virtual Internship 6.0/Internal-Chatbot-with-RBAC/logs/rag_audit.log"
 
-    DEFALUT_USERS = [
-            {
-                "username": "intern_user",
-                "password": "intern123",
-                "role": "Intern"
-            },
-            {
-                "username": "finance_user",
-                "password": "finance123",
-                "role": "Finance Analyst"
-            },
-            {
-                "username": "hr_user",
-                "password": "hr123",
-                "role": "HR Manager"
-            },
-            {
-                "username": "engineering_user",
-                "password": "eng123",
-                "role": "Engineering Lead"
-            },
-            {
-                "username": "manager_user",
-                "password": "manager123",
-                "role": "Manager"
-            },
-            {
-                "username": "admin_user",
-                "password": "admin123",
-                "role": "Admin"
-            }
-        ]
+    DEFAULT_USERS = os.getenv("DEFAULT_USERS",[])
