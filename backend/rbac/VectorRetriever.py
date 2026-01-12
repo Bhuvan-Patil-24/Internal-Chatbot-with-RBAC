@@ -81,6 +81,9 @@ class VectorRetriever:
             
             # Search each accessible department
             for dept in departments:
+                if dept == "hr":
+                    dept = "human_resource"
+                
                 dept_lower = dept.lower()
                 
                 # Check if department collection exists
