@@ -93,10 +93,6 @@ class UserResponse(BaseModel):
 class AuditLogQuery(BaseModel):
     limit: int = Field(default=50, ge=1, le=500)
 
-class UserActivityQuery(BaseModel):
-    username: str = Field(..., min_length=1)
-    limit: int = Field(default=20, ge=1, le=100)
-
 # ==================== SYSTEM STATUS MODELS ====================
 
 class SystemStatus(BaseModel):
