@@ -119,9 +119,12 @@ class APIClient:
         Logout and invalidate token
         """
         try:
-            response = requests.post(
+            requests.post(
                 f"{self.base_url}/auth/logout",
                 headers=self._get_headers(),
+                json={
+                "refresh_token": self.refresh_token
+                },
                 timeout=10
             )
             
