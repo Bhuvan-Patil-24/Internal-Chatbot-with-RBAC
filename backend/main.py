@@ -11,7 +11,7 @@ from auth.models import (
     LoginRequest, LoginResponse, RefreshRequest, TokenResponse,
     UserInfo, SystemStatus, PipelineStats,
     UserCreate, UserUpdate, UserResponse,
-    AuditLogQuery, UserActivityQuery
+    AuditLogQuery
 )
 from models.chat import (
     ChatRequest, ChatResponse, SourceCitation,
@@ -71,6 +71,7 @@ def require_admin(current_user: Dict):
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required"
         )
+        
 def ensure_pipeline_ready():
     if not rag_pipeline:
         raise HTTPException(
@@ -194,20 +195,27 @@ security = HTTPBearer()
 @app.post("/auth/logout")
 async def logout(
     request: Request,
+    refresh: RefreshRequest,
     credentials: HTTPAuthorizationCredentials = Depends(security),
     current_user: Dict = Depends(get_current_user)
 ):
-    token_blacklist.blacklist(credentials.credentials)
+    access_token = credentials.credentials
+    refresh_token = refresh.refresh_token
+
+    # Blacklist both
+    token_blacklist.blacklist(access_token)
+    token_blacklist.blacklist(refresh_token)
 
     audit_logger.log_auth_attempt(
         username=current_user["username"],
         action="logout",
         success=True,
-        reason="Token invalidated",
+        reason="Access & refresh tokens invalidated",
         ip_address=request.client.host
     )
 
     return {"message": "Logout successful"}
+
 
 
 @app.post("/auth/refresh", response_model=TokenResponse)
@@ -216,58 +224,71 @@ async def refresh_token(request: Request, refresh_request: RefreshRequest):
     ip_address = request.client.host
     
     try:
-        # Validate refresh token
-        user_info = auth_handler.validate_refresh_token(refresh_request.refresh_token)
-        
-        if not user_info:
+        if token_blacklist.is_blacklisted(refresh_request.refresh_token):
             audit_logger.log_auth_attempt(
                 username="unknown",
                 action="refresh",
                 success=False,
-                reason="Invalid refresh token",
+                reason="Blacklisted refresh token",
                 ip_address=ip_address
             )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid refresh token"
             )
+        else:
+            # Validate refresh token
+            user_info = auth_handler.validate_refresh_token(refresh_request.refresh_token)
+            
+            if not user_info:
+                audit_logger.log_auth_attempt(
+                    username="unknown",
+                    action="refresh",
+                    success=False,
+                    reason="Invalid refresh token",
+                    ip_address=ip_address
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid refresh token"
+                )
+            
+            # Verify user still exists and is active
+            user = db_manager.get_user_by_username(user_info["username"])
+            if not user or not user["is_active"]:
+                audit_logger.log_auth_attempt(
+                    username=user_info["username"],
+                    action="refresh",
+                    success=False,
+                    reason="User not found or disabled",
+                    ip_address=ip_address
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="User account not found or disabled"
+                )
         
-        # Verify user still exists and is active
-        user = db_manager.get_user_by_username(user_info["username"])
-        if not user or not user["is_active"]:
+            # Create new access token
+            access_token = auth_handler.create_access_token(
+                username=user["username"],
+                role=user["role"],
+                user_id=user["id"]
+            )
+            
             audit_logger.log_auth_attempt(
                 username=user_info["username"],
                 action="refresh",
-                success=False,
-                reason="User not found or disabled",
+                success=True,
+                reason="Token refreshed",
                 ip_address=ip_address
             )
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="User account not found or disabled"
+            
+            return TokenResponse(
+                access_token=access_token,
+                token_type="bearer",
+                expires_in=auth_handler.ACCESS_TOKEN_EXPIRE_MINUTES * 60
             )
         
-        # Create new access token
-        access_token = auth_handler.create_access_token(
-            username=user["username"],
-            role=user["role"],
-            user_id=user["id"]
-        )
-        
-        audit_logger.log_auth_attempt(
-            username=user_info["username"],
-            action="refresh",
-            success=True,
-            reason="Token refreshed",
-            ip_address=ip_address
-        )
-        
-        return TokenResponse(
-            access_token=access_token,
-            token_type="bearer",
-            expires_in=auth_handler.ACCESS_TOKEN_EXPIRE_MINUTES * 60
-        )
-    
     except Exception as e:
         audit_logger.log_auth_attempt(
             username="unknown",
@@ -280,7 +301,7 @@ async def refresh_token(request: Request, refresh_request: RefreshRequest):
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token refresh failed"
         )
-
+   
 
 @app.get("/auth/me", response_model=UserInfo)
 async def get_current_user_info(
