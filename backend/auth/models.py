@@ -11,8 +11,8 @@ class LoginRequest(BaseModel):
         "json_schema_extra": {
             "examples": [
                 {
-                    "username": "finance_user",
-                    "password": "finance123"
+                    "username": "demo_user",
+                    "password": "Demo@123"
                 }
             ]
         }

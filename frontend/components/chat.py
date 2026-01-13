@@ -9,14 +9,36 @@ from config.settings import WELCOME_MESSAGE
 import time
 
 def render_chat_header():
-    """Render chat header with title and info"""
     st.markdown("""
-        <div style='text-align: center; padding: 1rem 0;'>
-            <h1>💬 AI Assistant</h1>
-            <p style='color: #666;'>Ask questions about company documents and policies</p>
+        <div style="text-align:center; padding:1.2rem 0;">
+        
+        <h1 style="
+            margin:0;
+            font-size:2.6rem;
+            font-weight:900;
+            letter-spacing:1px;
+            background: linear-gradient(90deg, #00F5A0, #00D9F5, #8B5CF6, #EC4899);
+            background-size: 300% auto;
+            color: transparent;
+            background-clip: text;
+            -webkit-background-clip: text;
+            animation: glow 4s linear infinite;
+        ">
+            SentinelAI
+        </h1>
+
+        <p style="color:#9CA3AF; font-size:1rem; margin-top:0.4rem;">
+            Ask questions about company documents and policies
+        </p>
         </div>
-    """, unsafe_allow_html=True)
-    st.markdown("---")
+
+        <style>
+        @keyframes glow {
+        0%   { background-position: 0% center; }
+        100% { background-position: 300% center; }
+        }
+        </style>
+        """, unsafe_allow_html=True)
 
 def render_message_with_sources(message: dict):
     """Render a single message with sources"""
@@ -28,8 +50,8 @@ def render_message_with_sources(message: dict):
         # User message with custom styling (right-aligned with different color)
         st.markdown(f"""
             <div style='
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                color: white;
+                background: linear-gradient(135deg, #0ea5e9 0%, #22c55e 100%);
+                color: black;
                 padding: 1rem;
                 border-radius: 12px;
                 margin: 0.5rem 0 0.5rem auto;
@@ -40,7 +62,7 @@ def render_message_with_sources(message: dict):
                     <div style='margin-right: 0.5rem; text-align: right;'>
                         {content}
                     </div>
-                    <div style='font-size: 1.5rem;'>👤</div>
+                    <div style='font-size: 1.5rem;'> 👤</div>
                 </div>
             </div>
         """, unsafe_allow_html=True)
