@@ -124,7 +124,6 @@ def render_sidebar(api_client: APIClient, is_admin: bool):
         
         
         if SessionManager.is_admin():
-            st.markdown("")
             st.markdown("### 🔧 Admin Controls")
             
             # Navigation between admin panel and chat
@@ -213,8 +212,6 @@ def render_sidebar(api_client: APIClient, is_admin: bool):
         )
         st.session_state.show_confidence = show_confidence
         
-        st.markdown("")
-        
         # Actions
         st.markdown("### 🎯 Actions")
         
@@ -224,7 +221,13 @@ def render_sidebar(api_client: APIClient, is_admin: bool):
             st.success("Chat cleared!")
             time.sleep(0.5)
             st.rerun()
-        
+            
+        if st.sidebar.button("🧹 Clear Cache", use_container_width=True):
+            st.session_state.query_cache = {}
+            st.cache_data.clear()
+            st.cache_resource.clear()
+            st.success("Cache cleared successfully ✅")
+            
         # Refresh token if needed
         if api_client.is_token_expiring_soon():
             with st.spinner("Refreshing session..."):
@@ -232,3 +235,5 @@ def render_sidebar(api_client: APIClient, is_admin: bool):
                     st.success("✅ Session refreshed")
                 else:
                     st.warning("⚠️ Please login again")
+                    SessionManager.logout()
+                    time.sleep(0.5)
