@@ -2,10 +2,18 @@ from auth.token_blacklist import token_blacklist
 from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-
+from pathlib import Path
 from datetime import datetime
 import time
 from typing import Dict
+from fastapi.responses import HTMLResponse, FileResponse, PlainTextResponse
+from fastapi import Query
+import mimetypes
+import pandas as pd
+import markdown
+
+BASE_DIR = Path(__file__).resolve().parent
+DOCUMENTS_DIR = BASE_DIR / "data" / "documents"
 
 from auth.models import (
     LoginRequest, LoginResponse, RefreshRequest, TokenResponse,
@@ -374,7 +382,7 @@ async def chat_query(
             accessible_departments=response["accessible_departments"],
             model=response.get("model"),
             normalized_query=response.get("normalized_query"),
-            error=response.get("error")
+            # error=response.get("error")
         )
     
     except Exception as e:
@@ -383,7 +391,6 @@ async def chat_query(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Query execution failed: {str(e)}"
         )
-
 
 @app.post("/chat/retrieval-only", response_model=RetrievalOnlyResponse)
 async def retrieval_only(
@@ -435,6 +442,149 @@ async def retrieval_only(
             detail=f"Retrieval failed: {str(e)}"
         )
 
+@app.get("/documents/{document_name}")
+async def open_document(
+    document_name: str,
+    token: str = Query(..., description="JWT access token")
+):
+    ensure_pipeline_ready()
+
+    # --- Validate token ---
+    try:
+        current_user = auth_handler.decode_token(token)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    # --- RBAC enforcement ---
+    user_rbac = build_user_rbac(current_user)
+
+    allowed_docs = []
+    for dept in user_rbac.get_accessible_departments():
+        allowed_docs.extend(
+            rag_pipeline.rbac.rbac_config["resources"].get(dept, [])
+        )
+
+    if document_name not in allowed_docs:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # --- File resolution ---
+    file_path = DOCUMENTS_DIR / document_name
+
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    ext = file_path.suffix.lower()
+
+    # ========== MARKDOWN ==========
+    if ext in [".md", ".markdown"]:
+        text = file_path.read_text(encoding="utf-8")
+        
+        if not text.strip():
+                return PlainTextResponse(
+                    f"DEBUG: File is empty: {file_path}",
+                    status_code=200
+                )  
+        html_content = markdown.markdown(
+            text,
+            extensions=["fenced_code", "tables", "toc"]
+        )
+
+        return HTMLResponse(
+            content=f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <title>{document_name}</title>
+                <style>
+                    body {{
+                        font-family: Arial, sans-serif;
+                        padding: 40px;
+                        line-height: 1.7;
+                        max-width: 900px;
+                        margin: auto;
+                        background: #ffffff;
+                        color: #1f2937;
+                    }}
+                    h1, h2, h3 {{ color: #111827; }}
+                    pre {{
+                        background: #f3f4f6;
+                        padding: 12px;
+                        overflow-x: auto;
+                        border-radius: 6px;
+                    }}
+                    code {{
+                        background: #f3f4f6;
+                        padding: 2px 6px;
+                        border-radius: 4px;
+                    }}
+                    table {{
+                        border-collapse: collapse;
+                        width: 100%;
+                        margin: 1rem 0;
+                    }}
+                    th, td {{
+                        border: 1px solid #d1d5db;
+                        padding: 8px;
+                        text-align: left;
+                    }}
+                    th {{
+                        background: #f9fafb;
+                    }}
+                </style>
+            </head>
+            <body>
+                <h2>{document_name}</h2>
+                {html_content}
+            </body>
+            </html>
+            """,
+            status_code=200
+        )
+
+    # ========== CSV ==========
+    if ext == ".csv":
+        df = pd.read_csv(file_path)
+        table = df.to_html(index=False)
+
+        return HTMLResponse(
+            content=f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <title>{document_name}</title>
+                <style>
+                    body {{ font-family: Arial; padding: 30px; }}
+                    table {{ border-collapse: collapse; width: 100%; }}
+                    th, td {{ border: 1px solid #ddd; padding: 8px; }}
+                    th {{ background: #f3f4f6; }}
+                </style>
+            </head>
+            <body>
+                <h2>{document_name}</h2>
+                {table}
+            </body>
+            </html>
+            """
+        )
+
+    # ========== TXT ==========
+    if ext == ".txt":
+        return PlainTextResponse(file_path.read_text(encoding="utf-8"))
+
+    # ========== PDF ==========
+    if ext == ".pdf":
+        return FileResponse(file_path, media_type="application/pdf")
+
+    # ========== FALLBACK ==========
+    mime_type, _ = mimetypes.guess_type(str(file_path))
+    return FileResponse(
+        file_path,
+        media_type=mime_type or "application/octet-stream",
+        filename=document_name
+    )
+    
 
 @app.get("/chat/stats", response_model=PipelineStats)
 async def get_pipeline_stats(
@@ -581,4 +731,4 @@ async def get_user_activity(
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="localhost", port=8000)
+    uvicorn.run(app, host="127.0.0.1", port=8000)

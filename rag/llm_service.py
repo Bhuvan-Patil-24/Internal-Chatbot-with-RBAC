@@ -1,7 +1,7 @@
 import requests
 from typing import Dict, Any
 from services.audit_logger import AuditLogger
-from config import Config
+from config.config import Config
 from transformers import pipeline
 from huggingface_hub import InferenceClient
 

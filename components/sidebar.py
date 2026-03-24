@@ -121,8 +121,7 @@ def render_sidebar(api_client: APIClient, is_admin: bool):
                         st.markdown(f"• {dept.title()}")
         else:
             st.warning("⚠️ No accessible departments")
-        
-        
+                
         if SessionManager.is_admin():
             st.markdown("### 🔧 Admin Controls")
             

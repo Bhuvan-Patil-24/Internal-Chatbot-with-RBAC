@@ -2,7 +2,7 @@ import jwt
 import bcrypt
 from datetime import datetime, timedelta
 from typing import Dict, Optional
-from config import Config
+from config.config import Config
 
 class AuthHandler:
     """JWT-based authentication handler with secure token management"""

@@ -6,7 +6,7 @@ Initializes Complete RAG Pipeline (Retrieval + LLM)
 import chromadb
 import numpy as np
 import json
-from config import Config
+from config.config import Config
 
 # RAG Pipeline Components
 from services.QueryNormalizer import QueryNormalizer

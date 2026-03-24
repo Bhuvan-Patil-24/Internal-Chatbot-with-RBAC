@@ -5,7 +5,7 @@ Modern chat interface with AI response and source citations
 import streamlit as st
 from utils.api_client import APIClient
 from utils.session_manager import SessionManager
-from config.settings import WELCOME_MESSAGE
+from config.settings import WELCOME_MESSAGE, API_BASE_URL
 
 def render_chat_header():
     st.markdown("""
@@ -125,7 +125,7 @@ def render_message_with_sources(message: dict):
                 for i, source in enumerate(sources, 1):
                     doc = source.get("document")
                     token = st.session_state.api_client.access_token
-                    url = f"{APIClient().base_url}{source.get('source_url')}?token={token}"
+                    url = f"{API_BASE_URL}{source.get('source_url')}?token={token}"
                     
                     st.markdown(f"""
                         <div style='

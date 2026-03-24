@@ -4,7 +4,7 @@ import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Dict, Any
-from config import Config
+from config.config import Config
 
 class AuditLogger:
     """Unified audit logging for authentication, access control, and RAG pipeline"""

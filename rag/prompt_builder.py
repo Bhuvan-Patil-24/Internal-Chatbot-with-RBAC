@@ -60,11 +60,11 @@ ANSWER:"""
         return prompt
     
     def build_confidence_message(self, avg_similarity: float) -> str:
-        if avg_similarity >= 0.7:
+        if avg_similarity >= 0.5:
             return "High confidence - strong semantic match"
-        elif avg_similarity >= 0.5:
-            return "Medium confidence - moderate semantic match"
         elif avg_similarity >= 0.3:
+            return "Medium confidence - moderate semantic match"
+        elif avg_similarity >= 0.1:
             return "Low confidence - weak semantic match"
         else:
             return "Very low confidence - consider rephrasing your question"

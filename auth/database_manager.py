@@ -2,7 +2,7 @@ import sqlite3
 from typing import Optional, Dict, List
 from contextlib import contextmanager
 from pathlib import Path
-from config import Config
+from config.config import Config
 
 from .auth_handler import AuthHandler
 

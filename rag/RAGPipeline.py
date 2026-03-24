@@ -35,7 +35,7 @@ class CompleteRAGPipeline:
         self.llm_service = llm_service or LLMService()
         self.prompt_builder = prompt_builder or PromptBuilder()
         self.audit_logger = audit_logger or AuditLogger()
-        self._query_cache = {}
+        # self._query_cache = {}
 
         self.audit_logger.log_component_init("Complete RAG Pipeline")
     
@@ -58,11 +58,11 @@ class CompleteRAGPipeline:
         Returns:
             Complete response with answer, confidence, sources
         """
-        cache_key = f"{query}|{top_k}|{max_tokens}|{username}"
+        # cache_key = f"{query}|{top_k}|{max_tokens}|{username}"
 
-        if cache_key in self._query_cache:
-            self.audit_logger.log_info("Returning cached RAG response")
-            return self._query_cache[cache_key]
+        # if cache_key in self._query_cache:
+        #     self.audit_logger.log_info("Returning cached RAG response")
+        #     return self._query_cache[cache_key]
 
         # Log query start
         self.audit_logger.log_query_start(query, self.rbac.user_roles, username)
@@ -204,7 +204,7 @@ class CompleteRAGPipeline:
         #     response["error"] = llm_result["error"]
         
         self.audit_logger.log_query_complete(len(final_chunks))
-        self._query_cache[cache_key] = response
+        # self._query_cache[cache_key] = response
 
         return response
     
